@@ -1,10 +1,8 @@
 "use client";
 import { useState } from "react";
-
 import Image from "next/image.js";
 import { members, ALL_TEAMS, SECTIONS } from "@/lib/data.js";
-import { css } from "@/lib/css";
-
+import { css, S } from "@/lib/css.js";
 
 // ─── SCORING ─────────────────────────────────────────────────────────────────
 function scoreMember(member, answers) {
@@ -21,7 +19,6 @@ function scoreMember(member, answers) {
           total += (member[q.key] ?? 0) * w;
           maxPossible += 10 * w;
         }
-
       } else if (q.type === "bipolar") {
         if (ans < 0) {
           total += (member[q.leftKey] ?? 0) * Math.abs(ans);
@@ -30,33 +27,22 @@ function scoreMember(member, answers) {
           total += (member[q.rightKey] ?? 0) * ans;
           maxPossible += 10 * ans;
         }
-
       } else if (q.type === "multichoice") {
         const opt = q.options[ans];
-        if (opt?.filter && !opt.filter(member)) {
-          total -= 15;
-        }
+        if (opt?.filter && !opt.filter(member)) total -= 15;
         if (opt?.scoreMap) {
           Object.entries(opt.scoreMap).forEach(([k, w]) => {
             total += (member[k] ?? 0) * w;
             maxPossible += 10 * w;
           });
         }
-
       } else if (q.type === "multiselect-scoremap") {
-        // Multiple selected options, each with a scoreMap.
-        // Scores from all selected options are summed.
-        // maxPossible is based on the single richest option × number of selections
-        // so that choosing 2 options doesn't artificially inflate the ceiling vs choosing 1.
         if (!Array.isArray(ans) || ans.length === 0) return;
         const selectedOpts = ans.map((i) => q.options[i]).filter(Boolean);
-
-        // Find the max weight sum across all options (for fair normalisation)
         const optWeightSums = q.options.map((o) =>
           Object.values(o.scoreMap ?? {}).reduce((s, w) => s + w, 0)
         );
         const maxOptWeight = Math.max(...optWeightSums);
-
         selectedOpts.forEach((opt) => {
           if (opt.scoreMap) {
             Object.entries(opt.scoreMap).forEach(([k, w]) => {
@@ -64,12 +50,9 @@ function scoreMember(member, answers) {
             });
           }
         });
-        // Ceiling: each selection contributes one "ideal" option's worth
         maxPossible += maxOptWeight * 10 * selectedOpts.length;
-
       } else if (q.type === "multiselect") {
         if (!Array.isArray(ans) || ans.length === 0) return;
-
         if (q.key === "contentPref") {
           const CONTENT_BASE            = 6;
           const CONTENT_DIVERSITY_BONUS = 3;
@@ -84,7 +67,6 @@ function scoreMember(member, answers) {
           }
           maxPossible += selected.length * CONTENT_BASE
             + Math.max(0, selected.length - 1) * CONTENT_DIVERSITY_BONUS;
-
         } else if (q.key === "engagementPref") {
           const ENG_BASE         = 6;
           const ENG_FULL_BONUS   = 8;
@@ -98,7 +80,6 @@ function scoreMember(member, answers) {
             if (overlap === selected.length) total += ENG_FULL_BONUS;
           }
           maxPossible += selected.length * ENG_BASE + ENG_FULL_BONUS;
-
         } else {
           ans.forEach((i) => {
             const opt = q.options[i];
@@ -108,7 +89,6 @@ function scoreMember(member, answers) {
             }
           });
         }
-
       } else if (q.type === "yesno") {
         if (q.invert) {
           if (ans === false) {
@@ -128,26 +108,26 @@ function scoreMember(member, answers) {
   return Math.max(0, Math.min(100, Math.round(raw)));
 }
 
-// ─── THEME ───────────────────────────────────────────────────────────────────
-const S = {
-  pink: "#ff4d8d",
-  coral: "#ff6b6b",
-  gold: "#ffd166",
-  dark: "#0d0d0f",
-  card: "#141418",
-  cardBorder: "#2a2a35",
-  muted: "#666680",
-  text: "#f0eeff",
-  textSoft: "#b0aac8",
-};
-
-
-
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const TEAM_COLORS = {
   "Team Love":    S.pink,
   "Team Dream":   "#7490e8",
   "Team Passion": "#f9a825",
 };
+
+const GENDERS = [
+  { value: "male",   label: "Laki-laki" },
+  { value: "female", label: "Perempuan" },
+  { value: "other",  label: "Lainnya" },
+];
+
+// Greeting copy varies slightly by gender
+function buildGreeting(name, gender, memberName) {
+  const display = name?.trim() || null;
+  if (!display) return `Oshi-mu adalah ${memberName}!`;
+  if (gender === "female") return `${display}, oshi kamu adalah ${memberName}!`;
+  return `${display}, oshi kamu adalah ${memberName}!`;
+}
 
 // ─── QUESTION COMPONENTS ──────────────────────────────────────────────────────
 const LIKERT_OPTS = [
@@ -187,7 +167,6 @@ function BipolarQ({ q, answer, onChange }) {
     : answer === 0 ? "Tidak ada preferensi"
     : answer < 0 ? `${q.leftLabel} (${Math.abs(answer) === 2 ? "sangat" : "agak"})`
     : `${q.rightLabel} (${answer === 2 ? "sangat" : "agak"})`;
-
   return (
     <div className="jkt-bipolar">
       <div className="jkt-bipolar-labels"><span>{q.leftLabel}</span><span>{q.rightLabel}</span></div>
@@ -215,15 +194,11 @@ function MultiChoiceQ({ q, answer, onChange }) {
   );
 }
 
-// New: grid layout (like multichoice) but toggles up to `max` selections
 function MultiSelectScoreMapQ({ q, answer = [], onChange }) {
   const max = q.max ?? 2;
   function toggle(i) {
-    if (answer.includes(i)) {
-      onChange(answer.filter((x) => x !== i));
-    } else if (answer.length < max) {
-      onChange([...answer, i]);
-    }
+    if (answer.includes(i)) onChange(answer.filter((x) => x !== i));
+    else if (answer.length < max) onChange([...answer, i]);
   }
   const atLimit = answer.length >= max;
   return (
@@ -250,11 +225,8 @@ function MultiSelectScoreMapQ({ q, answer = [], onChange }) {
 
 function MultiSelectQ({ q, answer = [], onChange }) {
   function toggle(i) {
-    if (answer.includes(i)) {
-      onChange(answer.filter((x) => x !== i));
-    } else if (!q.max || answer.length < q.max) {
-      onChange([...answer, i]);
-    }
+    if (answer.includes(i)) onChange(answer.filter((x) => x !== i));
+    else if (!q.max || answer.length < q.max) onChange([...answer, i]);
   }
   const atLimit = q.max && answer.length >= q.max;
   return (
@@ -284,10 +256,8 @@ function MultiSelectQ({ q, answer = [], onChange }) {
 function YesNoQ({ answer, onChange }) {
   return (
     <div className="jkt-yesno">
-      <button className={`jkt-yesno-btn yes${answer === true ? " sel" : ""}`}
-        onClick={() => onChange(true)}>Ya</button>
-      <button className={`jkt-yesno-btn no${answer === false ? " sel" : ""}`}
-        onClick={() => onChange(false)}>Tidak</button>
+      <button className={`jkt-yesno-btn yes${answer === true  ? " sel" : ""}`} onClick={() => onChange(true)}>Ya</button>
+      <button className={`jkt-yesno-btn no${answer  === false ? " sel" : ""}`} onClick={() => onChange(false)}>Tidak</button>
     </div>
   );
 }
@@ -295,16 +265,15 @@ function YesNoQ({ answer, onChange }) {
 function QuestionCard({ q, answer, onChange }) {
   const isAnswered = answer !== undefined && answer !== null
     && !(Array.isArray(answer) && answer.length === 0);
-
   return (
     <div className={`jkt-card${isAnswered ? " answered" : ""}`}>
       <div className="jkt-q-label">{q.label}</div>
-      {q.type === "likert"              && <LikertQ              answer={answer}        onChange={onChange} />}
-      {q.type === "bipolar"             && <BipolarQ             q={q} answer={answer}  onChange={onChange} />}
-      {q.type === "multichoice"         && <MultiChoiceQ         q={q} answer={answer}  onChange={onChange} />}
-      {q.type === "multiselect-scoremap"&& <MultiSelectScoreMapQ q={q} answer={answer ?? []} onChange={onChange} />}
-      {q.type === "multiselect"         && <MultiSelectQ         q={q} answer={answer ?? []} onChange={onChange} />}
-      {q.type === "yesno"               && <YesNoQ               answer={answer}        onChange={onChange} />}
+      {q.type === "likert"               && <LikertQ               answer={answer}             onChange={onChange} />}
+      {q.type === "bipolar"              && <BipolarQ              q={q} answer={answer}        onChange={onChange} />}
+      {q.type === "multichoice"          && <MultiChoiceQ          q={q} answer={answer}        onChange={onChange} />}
+      {q.type === "multiselect-scoremap" && <MultiSelectScoreMapQ  q={q} answer={answer ?? []}  onChange={onChange} />}
+      {q.type === "multiselect"          && <MultiSelectQ          q={q} answer={answer ?? []}  onChange={onChange} />}
+      {q.type === "yesno"                && <YesNoQ                     answer={answer}         onChange={onChange} />}
     </div>
   );
 }
@@ -312,10 +281,7 @@ function QuestionCard({ q, answer, onChange }) {
 // ─── TEAM SELECTOR ────────────────────────────────────────────────────────────
 function TeamSelector({ selectedTeams, onChange }) {
   const allSelected = selectedTeams.length === ALL_TEAMS.length;
-
-  function toggleAll() {
-    onChange(allSelected ? [ALL_TEAMS[0]] : [...ALL_TEAMS]);
-  }
+  function toggleAll() { onChange(allSelected ? [ALL_TEAMS[0]] : [...ALL_TEAMS]); }
   function toggleTeam(t) {
     if (selectedTeams.includes(t)) {
       if (selectedTeams.length > 1) onChange(selectedTeams.filter((x) => x !== t));
@@ -323,7 +289,6 @@ function TeamSelector({ selectedTeams, onChange }) {
       onChange([...selectedTeams, t]);
     }
   }
-
   return (
     <div className="jkt-team-grid">
       {ALL_TEAMS.map((t) => {
@@ -359,13 +324,53 @@ function TeamSelector({ selectedTeams, onChange }) {
   );
 }
 
+// ─── FOOTER ───────────────────────────────────────────────────────────────────
+// Replace the href values below with the actual creator accounts
+const CREATOR_LINKS = [
+  {
+    label: "@raihanlail07",
+    href: "https://www.instagram.com/raihanlail07/",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/>
+        <circle cx="12" cy="12" r="4"/>
+        <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/>
+      </svg>
+    ),
+  },
+ 
+];
+
+function Footer() {
+  return (
+    <footer className="jkt-footer">
+      <div className="jkt-footer-label">Made with ❤️ by </div> 
+      <div className="jkt-footer-links">
+        {CREATOR_LINKS.map((l) => (
+          <a key={l.href} href={l.href} target="_blank" rel="noopener noreferrer"
+            className="jkt-footer-link">
+            {l.icon}
+            {l.label}
+          </a>
+        ))}
+      </div>
+      <div className="jkt-footer-copy">JKT48 Oshi Selector · Fanmade, just for fun.</div>
+    </footer>
+  );
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function Home() {
+  // step: "teams" | "quiz" | "userinfo" | "results"
   const [step, setStep]                   = useState("teams");
   const [selectedTeams, setSelectedTeams] = useState([...ALL_TEAMS]);
   const [sectionIdx, setSectionIdx]       = useState(0);
   const [answers, setAnswers]             = useState({});
   const [results, setResults]             = useState([]);
+
+  // User info form state
+  const [userName,   setUserName]   = useState("");
+  const [userGender, setUserGender] = useState(null); // null = not chosen
 
   const pool          = members.filter((m) => selectedTeams.includes(m.team));
   const curSection    = SECTIONS[sectionIdx];
@@ -377,6 +382,7 @@ export default function Home() {
     setAnswers((prev) => ({ ...prev, [key]: val }));
   }
 
+  // Called after user info form — compute and go to results
   function compute() {
     const scored = pool
       .map((m) => ({ ...m, score: scoreMember(m, answers) }))
@@ -388,6 +394,8 @@ export default function Home() {
   function resetAll() {
     setAnswers({});
     setSectionIdx(0);
+    setUserName("");
+    setUserGender(null);
     setStep("teams");
     setResults([]);
   }
@@ -397,6 +405,7 @@ export default function Home() {
       <style>{css}</style>
       <div className="jkt-root">
 
+        {/* ── HEADER ── */}
         <div className="jkt-header">
           <div className="jkt-title">JKT48<br />Oshi Selector (BETA)</div>
           <div className="jkt-subtitle">Temukan oshi-mu!</div>
@@ -405,7 +414,7 @@ export default function Home() {
 
         <div className="jkt-container">
 
-          {/* ── TEAM SELECTION ── */}
+          {/* ── STEP: TEAM SELECTION ── */}
           {step === "teams" && (
             <>
               <div className="jkt-section-label">
@@ -426,7 +435,7 @@ export default function Home() {
             </>
           )}
 
-          {/* ── QUIZ ── */}
+          {/* ── STEP: QUIZ ── */}
           {step === "quiz" && (
             <>
               <div className="jkt-progress-bar">
@@ -453,7 +462,7 @@ export default function Home() {
                 <div style={{ fontSize: 11, color: S.muted }}>{answeredCount} / {totalQ} dijawab</div>
                 {sectionIdx < totalSections - 1
                   ? <button className="jkt-btn-primary" onClick={() => setSectionIdx((i) => i + 1)}>Lanjut →</button>
-                  : <button className="jkt-btn-primary" onClick={compute}>Temukan ✦</button>
+                  : <button className="jkt-btn-primary" onClick={() => setStep("userinfo")}>Hampir selesai →</button>
                 }
               </div>
               <p style={{ textAlign: "center", fontSize: 11, color: S.muted, marginTop: 16, lineHeight: 1.6 }}>
@@ -462,14 +471,79 @@ export default function Home() {
             </>
           )}
 
-          {/* ── RESULTS ── */}
+          {/* ── STEP: USER INFO FORM ── */}
+          {step === "userinfo" && (
+            <>
+              <div className="jkt-section-label">
+                Terakhir ✦ <span style={{ color: S.muted }}>— Tentang Kamu</span>
+              </div>
+              <p style={{ fontSize: 13, color: S.muted, marginBottom: 20, lineHeight: 1.7 }}>
+                Opsional — hasil tetap muncul kalau kamu skip bagian ini.
+              </p>
+
+              <div className="jkt-form-card">
+                {/* Name */}
+                <div className="jkt-form-row">
+                  <label className="jkt-form-label">
+                    Nama <span>(opsional)</span>
+                  </label>
+                  <input
+                    className="jkt-form-input"
+                    type="text"
+                    placeholder="Nama atau nickname kamu..."
+                    maxLength={40}
+                    value={userName}
+                    onChange={(e) => setUserName(e.target.value)}
+                  />
+                </div>
+
+                {/* Gender */}
+                <div className="jkt-form-row">
+                  <label className="jkt-form-label">
+                    Gender <span>(opsional)</span>
+                  </label>
+                  <div className="jkt-gender-grid">
+                    {GENDERS.map((g) => (
+                      <button key={g.value}
+                        className={`jkt-gender-btn${userGender === g.value ? " sel" : ""}`}
+                        onClick={() => setUserGender(prev => prev === g.value ? null : g.value)}>
+                        {g.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="jkt-nav">
+                <button className="jkt-btn-ghost" onClick={() => setStep("quiz")}>
+                  ← Kembali
+                </button>
+                <button className="jkt-btn-primary" onClick={compute}>
+                  Lihat Hasil ✦
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ── STEP: RESULTS ── */}
           {step === "results" && results.length > 0 && (
             <>
               <div className="jkt-section-label">Hasil ✦</div>
+
+              {/* Hero card */}
               <div className="result-hero">
+                {/* Personalised greeting */}
+                {(userName?.trim() || userGender) && (
+                  <div className="result-greeting">
+                    <strong>{userName?.trim() || (userGender === "female" ? "Kamu" : "Kamu")}</strong>
+                    {userGender && !userName?.trim() && null}
+                    {", oshi kamu adalah:"}
+                  </div>
+                )}
                 <div style={{ fontSize: 11, letterSpacing: 3, color: S.muted, marginBottom: 12, textTransform: "uppercase" }}>
-                  Oshi-mu Adalah
+                  {userName?.trim() ? "" : "Oshi-mu Adalah"}
                 </div>
+
                 <Image height={100} width={100} className="result-avatar"
                   src={results[0].photo} alt={results[0].name}
                   onError={(e) => { e.target.style.display = "none"; }} />
@@ -478,9 +552,13 @@ export default function Home() {
                   {results[0].team} · Gen {results[0].generation}
                 </div>
                 <div className="result-score">{results[0].score}%</div>
-                <div style={{ fontSize: 11, color: S.muted, marginBottom: 14 }}>skor kecocokan</div>
+                <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>skor kecocokan</div>
+                 <div style={{ fontSize: 9, color: S.muted, marginBottom: 4 }}>Disclaimer: kembali lagi ke kepercayaan masing-masing 🙏</div>
+
+               
               </div>
 
+              {/* Full ranking */}
               <div style={{ fontSize: 11, letterSpacing: 4, color: S.muted, textTransform: "uppercase", marginBottom: 14 }}>
                 Ranking Lengkap
               </div>
@@ -523,6 +601,10 @@ export default function Home() {
           )}
 
         </div>
+
+        {/* ── FOOTER ── */}
+        <Footer />
+
       </div>
     </>
   );
