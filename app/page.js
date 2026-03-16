@@ -1,65 +1,529 @@
-import Image from "next/image";
+"use client";
+import { useState } from "react";
 
-export default function Home() {
+import Image from "next/image.js";
+import { members, ALL_TEAMS, SECTIONS } from "@/lib/data.js";
+import { css } from "@/lib/css";
+
+
+// ─── SCORING ─────────────────────────────────────────────────────────────────
+function scoreMember(member, answers) {
+  let total = 0, maxPossible = 0;
+
+  SECTIONS.forEach((sec) => {
+    sec.questions.forEach((q) => {
+      const ans = answers[q.key];
+      if (ans === undefined || ans === null) return;
+
+      if (q.type === "likert") {
+        const w = ans;
+        if (w > 0) {
+          total += (member[q.key] ?? 0) * w;
+          maxPossible += 10 * w;
+        }
+
+      } else if (q.type === "bipolar") {
+        if (ans < 0) {
+          total += (member[q.leftKey] ?? 0) * Math.abs(ans);
+          maxPossible += 10 * Math.abs(ans);
+        } else if (ans > 0) {
+          total += (member[q.rightKey] ?? 0) * ans;
+          maxPossible += 10 * ans;
+        }
+
+      } else if (q.type === "multichoice") {
+        const opt = q.options[ans];
+        if (opt?.filter && !opt.filter(member)) {
+          total -= 15;
+        }
+        if (opt?.scoreMap) {
+          Object.entries(opt.scoreMap).forEach(([k, w]) => {
+            total += (member[k] ?? 0) * w;
+            maxPossible += 10 * w;
+          });
+        }
+
+      } else if (q.type === "multiselect-scoremap") {
+        // Multiple selected options, each with a scoreMap.
+        // Scores from all selected options are summed.
+        // maxPossible is based on the single richest option × number of selections
+        // so that choosing 2 options doesn't artificially inflate the ceiling vs choosing 1.
+        if (!Array.isArray(ans) || ans.length === 0) return;
+        const selectedOpts = ans.map((i) => q.options[i]).filter(Boolean);
+
+        // Find the max weight sum across all options (for fair normalisation)
+        const optWeightSums = q.options.map((o) =>
+          Object.values(o.scoreMap ?? {}).reduce((s, w) => s + w, 0)
+        );
+        const maxOptWeight = Math.max(...optWeightSums);
+
+        selectedOpts.forEach((opt) => {
+          if (opt.scoreMap) {
+            Object.entries(opt.scoreMap).forEach(([k, w]) => {
+              total += (member[k] ?? 0) * w;
+            });
+          }
+        });
+        // Ceiling: each selection contributes one "ideal" option's worth
+        maxPossible += maxOptWeight * 10 * selectedOpts.length;
+
+      } else if (q.type === "multiselect") {
+        if (!Array.isArray(ans) || ans.length === 0) return;
+
+        if (q.key === "contentPref") {
+          const CONTENT_BASE            = 6;
+          const CONTENT_DIVERSITY_BONUS = 3;
+          const CONTENT_ZERO_PENALTY    = 10;
+          const selected = ans.map((i) => q.options[i]?.value).filter(Boolean);
+          const overlap  = selected.filter((v) => member.contentType?.includes(v)).length;
+          if (overlap === 0) {
+            total -= CONTENT_ZERO_PENALTY;
+          } else {
+            total += overlap * CONTENT_BASE;
+            total += Math.max(0, overlap - 1) * CONTENT_DIVERSITY_BONUS;
+          }
+          maxPossible += selected.length * CONTENT_BASE
+            + Math.max(0, selected.length - 1) * CONTENT_DIVERSITY_BONUS;
+
+        } else if (q.key === "engagementPref") {
+          const ENG_BASE         = 6;
+          const ENG_FULL_BONUS   = 8;
+          const ENG_ZERO_PENALTY = 8;
+          const selected = ans.map((i) => q.options[i]?.value).filter(Boolean);
+          const overlap  = selected.filter((v) => member.engagement?.includes(v)).length;
+          if (overlap === 0) {
+            total -= ENG_ZERO_PENALTY;
+          } else {
+            total += overlap * ENG_BASE;
+            if (overlap === selected.length) total += ENG_FULL_BONUS;
+          }
+          maxPossible += selected.length * ENG_BASE + ENG_FULL_BONUS;
+
+        } else {
+          ans.forEach((i) => {
+            const opt = q.options[i];
+            if (opt?.scoreKey) {
+              total += (member[opt.scoreKey] ?? 0) * opt.bonus;
+              maxPossible += 10 * opt.bonus;
+            }
+          });
+        }
+
+      } else if (q.type === "yesno") {
+        if (q.invert) {
+          if (ans === false) {
+            total += (10 - (member[q.yesKey] ?? 0)) * 2;
+            maxPossible += 10 * 2;
+          }
+        } else {
+          const k = ans ? q.yesKey : q.noKey;
+          total += (member[k] ?? 0) * 2;
+          maxPossible += 10 * 2;
+        }
+      }
+    });
+  });
+
+  const raw = maxPossible > 0 ? (total / maxPossible) * 100 : 0;
+  return Math.max(0, Math.min(100, Math.round(raw)));
+}
+
+// ─── THEME ───────────────────────────────────────────────────────────────────
+const S = {
+  pink: "#ff4d8d",
+  coral: "#ff6b6b",
+  gold: "#ffd166",
+  dark: "#0d0d0f",
+  card: "#141418",
+  cardBorder: "#2a2a35",
+  muted: "#666680",
+  text: "#f0eeff",
+  textSoft: "#b0aac8",
+};
+
+
+
+const TEAM_COLORS = {
+  "Team Love":    S.pink,
+  "Team Dream":   "#7490e8",
+  "Team Passion": "#f9a825",
+};
+
+// ─── QUESTION COMPONENTS ──────────────────────────────────────────────────────
+const LIKERT_OPTS = [
+  { v: 0, label: "Tidak penting" },
+  { v: 1, label: "Kurang penting" },
+  { v: 2, label: "Lumayan" },
+  { v: 3, label: "Penting" },
+  { v: 4, label: "Sangat penting" },
+];
+
+function LikertQ({ answer, onChange }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.js file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <div className="jkt-likert">
+      {LIKERT_OPTS.map((o) => (
+        <button key={o.v} className={`jkt-likert-btn${answer === o.v ? " sel" : ""}`}
+          onClick={() => onChange(o.v)}>
+          {o.label}
+        </button>
+      ))}
     </div>
+  );
+}
+
+function BipolarQ({ q, answer, onChange }) {
+  const dots = [
+    { val: -2, size: 36, side: "left" },
+    { val: -1, size: 28, side: "left" },
+    { val:  0, size: 22, side: "mid"  },
+    { val:  1, size: 28, side: "right" },
+    { val:  2, size: 36, side: "right" },
+  ];
+  function selClass(d) {
+    if (answer !== d.val) return "";
+    return d.side === "left" ? " left-sel" : d.side === "right" ? " right-sel" : " mid-sel";
+  }
+  const hint = answer === null || answer === undefined ? "Pilih preferensimu"
+    : answer === 0 ? "Tidak ada preferensi"
+    : answer < 0 ? `${q.leftLabel} (${Math.abs(answer) === 2 ? "sangat" : "agak"})`
+    : `${q.rightLabel} (${answer === 2 ? "sangat" : "agak"})`;
+
+  return (
+    <div className="jkt-bipolar">
+      <div className="jkt-bipolar-labels"><span>{q.leftLabel}</span><span>{q.rightLabel}</span></div>
+      <div className="jkt-bipolar-track">
+        {dots.map((d) => (
+          <button key={d.val} className={`jkt-bipolar-dot${selClass(d)}`}
+            style={{ width: d.size, height: d.size }} onClick={() => onChange(d.val)} />
+        ))}
+      </div>
+      <div style={{ textAlign: "center", fontSize: 11, color: S.muted, marginTop: 4 }}>{hint}</div>
+    </div>
+  );
+}
+
+function MultiChoiceQ({ q, answer, onChange }) {
+  return (
+    <div className="jkt-choice-grid">
+      {q.options.map((o, i) => (
+        <button key={i} className={`jkt-choice-btn${answer === i ? " sel" : ""}`}
+          onClick={() => onChange(i)}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// New: grid layout (like multichoice) but toggles up to `max` selections
+function MultiSelectScoreMapQ({ q, answer = [], onChange }) {
+  const max = q.max ?? 2;
+  function toggle(i) {
+    if (answer.includes(i)) {
+      onChange(answer.filter((x) => x !== i));
+    } else if (answer.length < max) {
+      onChange([...answer, i]);
+    }
+  }
+  const atLimit = answer.length >= max;
+  return (
+    <div>
+      <div className="jkt-choice-grid">
+        {q.options.map((o, i) => {
+          const selected = answer.includes(i);
+          const disabled = !selected && atLimit;
+          return (
+            <button key={i}
+              className={`jkt-choice-btn${selected ? " sel" : ""}${disabled ? " disabled" : ""}`}
+              onClick={() => !disabled && toggle(i)}>
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+      <div className="jkt-max-hint">
+        Pilih maks. <span>{max}</span> opsi ({answer.length}/{max})
+      </div>
+    </div>
+  );
+}
+
+function MultiSelectQ({ q, answer = [], onChange }) {
+  function toggle(i) {
+    if (answer.includes(i)) {
+      onChange(answer.filter((x) => x !== i));
+    } else if (!q.max || answer.length < q.max) {
+      onChange([...answer, i]);
+    }
+  }
+  const atLimit = q.max && answer.length >= q.max;
+  return (
+    <div>
+      <div className="jkt-multisel-grid">
+        {q.options.map((o, i) => {
+          const selected = answer.includes(i);
+          const disabled = !selected && atLimit;
+          return (
+            <button key={i}
+              className={`jkt-tag${selected ? " sel" : ""}${disabled ? " disabled" : ""}`}
+              onClick={() => !disabled && toggle(i)}>
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+      {q.max && (
+        <div className="jkt-max-hint">
+          Pilih maks. <span>{q.max}</span> opsi ({answer.length}/{q.max})
+        </div>
+      )}
+    </div>
+  );
+}
+
+function YesNoQ({ answer, onChange }) {
+  return (
+    <div className="jkt-yesno">
+      <button className={`jkt-yesno-btn yes${answer === true ? " sel" : ""}`}
+        onClick={() => onChange(true)}>Ya</button>
+      <button className={`jkt-yesno-btn no${answer === false ? " sel" : ""}`}
+        onClick={() => onChange(false)}>Tidak</button>
+    </div>
+  );
+}
+
+function QuestionCard({ q, answer, onChange }) {
+  const isAnswered = answer !== undefined && answer !== null
+    && !(Array.isArray(answer) && answer.length === 0);
+
+  return (
+    <div className={`jkt-card${isAnswered ? " answered" : ""}`}>
+      <div className="jkt-q-label">{q.label}</div>
+      {q.type === "likert"              && <LikertQ              answer={answer}        onChange={onChange} />}
+      {q.type === "bipolar"             && <BipolarQ             q={q} answer={answer}  onChange={onChange} />}
+      {q.type === "multichoice"         && <MultiChoiceQ         q={q} answer={answer}  onChange={onChange} />}
+      {q.type === "multiselect-scoremap"&& <MultiSelectScoreMapQ q={q} answer={answer ?? []} onChange={onChange} />}
+      {q.type === "multiselect"         && <MultiSelectQ         q={q} answer={answer ?? []} onChange={onChange} />}
+      {q.type === "yesno"               && <YesNoQ               answer={answer}        onChange={onChange} />}
+    </div>
+  );
+}
+
+// ─── TEAM SELECTOR ────────────────────────────────────────────────────────────
+function TeamSelector({ selectedTeams, onChange }) {
+  const allSelected = selectedTeams.length === ALL_TEAMS.length;
+
+  function toggleAll() {
+    onChange(allSelected ? [ALL_TEAMS[0]] : [...ALL_TEAMS]);
+  }
+  function toggleTeam(t) {
+    if (selectedTeams.includes(t)) {
+      if (selectedTeams.length > 1) onChange(selectedTeams.filter((x) => x !== t));
+    } else {
+      onChange([...selectedTeams, t]);
+    }
+  }
+
+  return (
+    <div className="jkt-team-grid">
+      {ALL_TEAMS.map((t) => {
+        const isActive = selectedTeams.includes(t) && !allSelected;
+        const color = TEAM_COLORS[t] || S.pink;
+        const count = members.filter((m) => m.team === t).length;
+        return (
+          <div key={t} className={`jkt-team-card${isActive ? " sel" : ""}`}
+            style={{ borderColor: isActive ? color : "" }}
+            onClick={() => { if (allSelected) onChange([t]); else toggleTeam(t); }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 10, height: 10, borderRadius: "50%", background: color, flexShrink: 0 }} />
+              <div>
+                <div style={{ fontWeight: 500, fontSize: 15 }}>{t}</div>
+                <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>{count} member</div>
+              </div>
+            </div>
+            <div className={`jkt-check${isActive ? " on" : ""}`}
+              style={{ background: isActive ? color : "", borderColor: isActive ? color : "" }}>✓</div>
+          </div>
+        );
+      })}
+      <div className={`jkt-team-card${allSelected ? " sel" : ""}`}
+        style={{ borderColor: allSelected ? S.gold : "" }} onClick={toggleAll}>
+        <div>
+          <div style={{ fontWeight: 500, fontSize: 15 }}>Semua Member</div>
+          <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>{members.length} member dari semua tim</div>
+        </div>
+        <div className={`jkt-check${allSelected ? " on" : ""}`}
+          style={{ background: allSelected ? S.gold : "", borderColor: allSelected ? S.gold : "" }}>✓</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+export default function Home() {
+  const [step, setStep]                   = useState("teams");
+  const [selectedTeams, setSelectedTeams] = useState([...ALL_TEAMS]);
+  const [sectionIdx, setSectionIdx]       = useState(0);
+  const [answers, setAnswers]             = useState({});
+  const [results, setResults]             = useState([]);
+
+  const pool          = members.filter((m) => selectedTeams.includes(m.team));
+  const curSection    = SECTIONS[sectionIdx];
+  const totalSections = SECTIONS.length;
+  const totalQ        = SECTIONS.reduce((s, sec) => s + sec.questions.length, 0);
+  const answeredCount = Object.keys(answers).length;
+
+  function setAnswer(key, val) {
+    setAnswers((prev) => ({ ...prev, [key]: val }));
+  }
+
+  function compute() {
+    const scored = pool
+      .map((m) => ({ ...m, score: scoreMember(m, answers) }))
+      .sort((a, b) => b.score - a.score);
+    setResults(scored);
+    setStep("results");
+  }
+
+  function resetAll() {
+    setAnswers({});
+    setSectionIdx(0);
+    setStep("teams");
+    setResults([]);
+  }
+
+  return (
+    <>
+      <style>{css}</style>
+      <div className="jkt-root">
+
+        <div className="jkt-header">
+          <div className="jkt-title">JKT48<br />Oshi Selector (BETA)</div>
+          <div className="jkt-subtitle">Temukan oshi-mu!</div>
+          <div className="jkt-subtitle-2">Karena ini masih beta jadi mohon maap klo rada ngawur dikit.</div>
+        </div>
+
+        <div className="jkt-container">
+
+          {/* ── TEAM SELECTION ── */}
+          {step === "teams" && (
+            <>
+              <div className="jkt-section-label">
+                Langkah 1 <span style={{ color: S.muted }}>— Pilih Tim</span>
+              </div>
+              <p style={{ fontSize: 13, color: S.muted, marginBottom: 20, lineHeight: 1.7 }}>
+                Pilih tim mana yang ingin kamu masukkan ke dalam pencarian.
+              </p>
+              <TeamSelector selectedTeams={selectedTeams} onChange={setSelectedTeams} />
+              <div style={{ marginTop: 28, textAlign: "center" }}>
+                <button className="jkt-btn-primary" onClick={() => setStep("quiz")}>
+                  Mulai Kuis →
+                </button>
+                <div style={{ fontSize: 12, color: S.muted, marginTop: 10 }}>
+                  {pool.length} member terpilih
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ── QUIZ ── */}
+          {step === "quiz" && (
+            <>
+              <div className="jkt-progress-bar">
+                <div className="jkt-progress-fill"
+                  style={{ width: `${((sectionIdx + 1) / totalSections) * 100}%` }} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                <div className="jkt-section-label" style={{ margin: 0 }}>
+                  <span style={{ fontSize: 18 }}>{curSection.emoji}</span> {curSection.title}
+                </div>
+                <div style={{ fontSize: 12, color: S.muted }}>{sectionIdx + 1} / {totalSections}</div>
+              </div>
+
+              {curSection.questions.map((q) => (
+                <QuestionCard key={q.key} q={q} answer={answers[q.key]}
+                  onChange={(v) => setAnswer(q.key, v)} />
+              ))}
+
+              <div className="jkt-nav">
+                <button className="jkt-btn-ghost"
+                  onClick={() => sectionIdx > 0 ? setSectionIdx((i) => i - 1) : setStep("teams")}>
+                  ← Kembali
+                </button>
+                <div style={{ fontSize: 11, color: S.muted }}>{answeredCount} / {totalQ} dijawab</div>
+                {sectionIdx < totalSections - 1
+                  ? <button className="jkt-btn-primary" onClick={() => setSectionIdx((i) => i + 1)}>Lanjut →</button>
+                  : <button className="jkt-btn-primary" onClick={compute}>Temukan ✦</button>
+                }
+              </div>
+              <p style={{ textAlign: "center", fontSize: 11, color: S.muted, marginTop: 16, lineHeight: 1.6 }}>
+                Pertanyaan yang dilewati tidak akan mempengaruhi skor
+              </p>
+            </>
+          )}
+
+          {/* ── RESULTS ── */}
+          {step === "results" && results.length > 0 && (
+            <>
+              <div className="jkt-section-label">Hasil ✦</div>
+              <div className="result-hero">
+                <div style={{ fontSize: 11, letterSpacing: 3, color: S.muted, marginBottom: 12, textTransform: "uppercase" }}>
+                  Oshi-mu Adalah
+                </div>
+                <Image height={100} width={100} className="result-avatar"
+                  src={results[0].photo} alt={results[0].name}
+                  onError={(e) => { e.target.style.display = "none"; }} />
+                <div className="result-name">{results[0].name}</div>
+                <div style={{ fontSize: 12, color: S.muted, margin: "4px 0 10px" }}>
+                  {results[0].team} · Gen {results[0].generation}
+                </div>
+                <div className="result-score">{results[0].score}%</div>
+                <div style={{ fontSize: 11, color: S.muted, marginBottom: 14 }}>skor kecocokan</div>
+              </div>
+
+              <div style={{ fontSize: 11, letterSpacing: 4, color: S.muted, textTransform: "uppercase", marginBottom: 14 }}>
+                Ranking Lengkap
+              </div>
+              {results.map((m, i) => {
+                const rankColor = i === 0 ? S.pink : i === 1 ? S.coral : i === 2 ? S.gold : S.muted;
+                const barColor  = i === 0 ? `linear-gradient(90deg,${S.pink},${S.coral})`
+                  : i < 3 ? `linear-gradient(90deg,${S.coral},${S.gold})` : `#3a3a50`;
+                return (
+                  <div key={m.id} className="result-list-item">
+                    <div className="result-rank"
+                      style={{ background: `${rankColor}22`, color: rankColor, border: `1px solid ${rankColor}44` }}>
+                      {i + 1}
+                    </div>
+                    <Image className="result-avatar-sm" width={40} height={40}
+                      src={m.photo} alt={m.name}
+                      onError={(e) => { e.target.style.background = "#2a2a35"; }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {m.name}
+                      </div>
+                      <div style={{ fontSize: 11, color: S.muted }}>{m.team} · Gen {m.generation}</div>
+                      <div className="score-bar-bg">
+                        <div className="score-bar-fill" style={{ width: `${m.score}%`, background: barColor }} />
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: rankColor, minWidth: 38, textAlign: "right" }}>
+                      {m.score}%
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 24 }}>
+                <button className="jkt-btn-ghost" onClick={() => { setSectionIdx(0); setStep("quiz"); }}>
+                  ← Ulangi Kuis
+                </button>
+                <button className="jkt-btn-primary" onClick={resetAll}>Mulai Ulang</button>
+              </div>
+            </>
+          )}
+
+        </div>
+      </div>
+    </>
   );
 }
