@@ -29,12 +29,14 @@ function scoreMember(member, answers) {
         }
       } else if (q.type === "multichoice") {
         const opt = q.options[ans];
-        if (opt?.filter && !opt.filter(member)) total -= 15;
-        if (opt?.scoreMap) {
-          Object.entries(opt.scoreMap).forEach(([k, w]) => {
-            total += (member[k] ?? 0) * w;
-            maxPossible += 10 * w;
-          });
+  if (opt?.filter && !opt.filter(member)) {
+    total -= maxPossible * 0.5; // 50% of ceiling — always forces to bottom half
+  }
+  if (opt?.scoreMap) {
+    Object.entries(opt.scoreMap).forEach(([k, w]) => {
+      total += (member[k] ?? 0) * w;
+      maxPossible += 10 * w;
+    });
         }
       } else if (q.type === "multiselect-scoremap") {
         if (!Array.isArray(ans) || ans.length === 0) return;
