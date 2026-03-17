@@ -560,7 +560,7 @@ export default function Home() {
 
               {/* Full ranking */}
               <div style={{ fontSize: 11, letterSpacing: 4, color: S.muted, textTransform: "uppercase", marginBottom: 14 }}>
-                Ranking Lengkap
+                Rekomendasi Oshi Untukmu:
               </div>
               {results.map((m, i) => {
                 const rankColor = i === 0 ? S.pink : i === 1 ? S.coral : i === 2 ? S.gold : S.muted;
