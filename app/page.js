@@ -4,12 +4,29 @@ import Image from "next/image.js";
 import { members, ALL_TEAMS, SECTIONS } from "@/lib/data.js";
 import { css, S } from "@/lib/css.js";
 
+// ─── GENERATION HELPERS ───────────────────────────────────────────────────────
+function memberMatchesGeneration(member, genAns) {
+  if (genAns === null || genAns === undefined) return true;
+  const gen = parseInt(member.generation);
+  switch (genAns) {
+    case 0: return gen <= 9;
+    case 1: return gen >= 10 && gen <= 11;
+    case 2: return gen >= 12;
+    case 3: return true;
+    default: return true;
+  }
+}
+
+const GEN_LABELS = ["Gen 3–9", "Gen 10–11", "Gen 12+", "Semua Generasi"];
+
 // ─── SCORING ─────────────────────────────────────────────────────────────────
 function scoreMember(member, answers) {
   let total = 0, maxPossible = 0;
 
   SECTIONS.forEach((sec) => {
     sec.questions.forEach((q) => {
+      if (q.key === "generationPref") return;
+
       const ans = answers[q.key];
       if (ans === undefined || ans === null) return;
 
@@ -29,14 +46,14 @@ function scoreMember(member, answers) {
         }
       } else if (q.type === "multichoice") {
         const opt = q.options[ans];
-  if (opt?.filter && !opt.filter(member)) {
-    total -= maxPossible * 0.5; // 50% of ceiling — always forces to bottom half
-  }
-  if (opt?.scoreMap) {
-    Object.entries(opt.scoreMap).forEach(([k, w]) => {
-      total += (member[k] ?? 0) * w;
-      maxPossible += 10 * w;
-    });
+        if (opt?.filter && !opt.filter(member)) {
+          total -= maxPossible * 0.5;
+        }
+        if (opt?.scoreMap) {
+          Object.entries(opt.scoreMap).forEach(([k, w]) => {
+            total += (member[k] ?? 0) * w;
+            maxPossible += 10 * w;
+          });
         }
       } else if (q.type === "multiselect-scoremap") {
         if (!Array.isArray(ans) || ans.length === 0) return;
@@ -112,9 +129,10 @@ function scoreMember(member, answers) {
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const TEAM_COLORS = {
-  "Team Love":    S.pink,
-  "Team Dream":   "#7490e8",
-  "Team Passion": "#f9a825",
+  "Team Love":    S.red,
+  "Team Dream":   "#4A7EC8",
+  "Team Passion": "#C87830",
+  "Trainee":      "#3A9A60",
 };
 
 const GENDERS = [
@@ -122,14 +140,6 @@ const GENDERS = [
   { value: "female", label: "Perempuan" },
   { value: "other",  label: "Lainnya" },
 ];
-
-// Greeting copy varies slightly by gender
-function buildGreeting(name, gender, memberName) {
-  const display = name?.trim() || null;
-  if (!display) return `Oshi-mu adalah ${memberName}!`;
-  if (gender === "female") return `${display}, oshi kamu adalah ${memberName}!`;
-  return `${display}, oshi kamu adalah ${memberName}!`;
-}
 
 // ─── QUESTION COMPONENTS ──────────────────────────────────────────────────────
 const LIKERT_OPTS = [
@@ -178,7 +188,7 @@ function BipolarQ({ q, answer, onChange }) {
             style={{ width: d.size, height: d.size }} onClick={() => onChange(d.val)} />
         ))}
       </div>
-      <div style={{ textAlign: "center", fontSize: 11, color: S.muted, marginTop: 4 }}>{hint}</div>
+      <div style={{ textAlign: "center", fontSize: 11, color: S.textMuted, marginTop: 5 }}>{hint}</div>
     </div>
   );
 }
@@ -295,39 +305,45 @@ function TeamSelector({ selectedTeams, onChange }) {
     <div className="jkt-team-grid">
       {ALL_TEAMS.map((t) => {
         const isActive = selectedTeams.includes(t) && !allSelected;
-        const color = TEAM_COLORS[t] || S.pink;
+        const color = TEAM_COLORS[t] || S.red;
         const count = members.filter((m) => m.team === t).length;
         return (
           <div key={t} className={`jkt-team-card${isActive ? " sel" : ""}`}
             style={{ borderColor: isActive ? color : "" }}
             onClick={() => { if (allSelected) onChange([t]); else toggleTeam(t); }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 10, height: 10, borderRadius: "50%", background: color, flexShrink: 0 }} />
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0,
+                boxShadow: isActive ? `0 0 6px ${color}` : "none" }} />
               <div>
-                <div style={{ fontWeight: 500, fontSize: 15 }}>{t}</div>
-                <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>{count} member</div>
+                <div style={{ fontWeight: 500, fontSize: 14, color: S.text }}>{t}</div>
+                <div style={{ fontSize: 11, color: S.textMuted, marginTop: 1 }}>{count} member</div>
               </div>
             </div>
             <div className={`jkt-check${isActive ? " on" : ""}`}
-              style={{ background: isActive ? color : "", borderColor: isActive ? color : "" }}>✓</div>
+              style={{ background: isActive ? color : "", borderColor: isActive ? color : "",
+                boxShadow: isActive ? `0 0 8px ${color}66` : "none" }}>✓</div>
           </div>
         );
       })}
+      {/* All members option */}
       <div className={`jkt-team-card${allSelected ? " sel" : ""}`}
         style={{ borderColor: allSelected ? S.gold : "" }} onClick={toggleAll}>
-        <div>
-          <div style={{ fontWeight: 500, fontSize: 15 }}>Semua Member</div>
-          <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>{members.length} member dari semua tim</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ fontSize: 10, color: allSelected ? S.gold : S.textFaint, letterSpacing: 2 }}>♠♥♦♣</div>
+          <div>
+            <div style={{ fontWeight: 500, fontSize: 14, color: S.text }}>Semua Member</div>
+            <div style={{ fontSize: 11, color: S.textMuted, marginTop: 1 }}>{members.length} member dari semua tim</div>
+          </div>
         </div>
         <div className={`jkt-check${allSelected ? " on" : ""}`}
-          style={{ background: allSelected ? S.gold : "", borderColor: allSelected ? S.gold : "" }}>✓</div>
+          style={{ background: allSelected ? S.gold : "", borderColor: allSelected ? S.gold : "",
+            boxShadow: allSelected ? `0 0 8px ${S.gold}66` : "none" }}>✓</div>
       </div>
     </div>
   );
 }
 
 // ─── FOOTER ───────────────────────────────────────────────────────────────────
-// Replace the href values below with the actual creator accounts
 const CREATOR_LINKS = [
   {
     label: "@raihanlail07",
@@ -340,19 +356,17 @@ const CREATOR_LINKS = [
       </svg>
     ),
   },
- 
 ];
 
 function Footer() {
   return (
     <footer className="jkt-footer">
-      <div className="jkt-footer-label">Made with ❤️ by </div> 
+      <div className="jkt-footer-label">Made with ♥ by</div>
       <div className="jkt-footer-links">
         {CREATOR_LINKS.map((l) => (
           <a key={l.href} href={l.href} target="_blank" rel="noopener noreferrer"
             className="jkt-footer-link">
-            {l.icon}
-            {l.label}
+            {l.icon}{l.label}
           </a>
         ))}
       </div>
@@ -363,16 +377,13 @@ function Footer() {
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function Home() {
-  // step: "teams" | "quiz" | "userinfo" | "results"
   const [step, setStep]                   = useState("teams");
   const [selectedTeams, setSelectedTeams] = useState([...ALL_TEAMS]);
   const [sectionIdx, setSectionIdx]       = useState(0);
   const [answers, setAnswers]             = useState({});
   const [results, setResults]             = useState([]);
-
-  // User info form state
-  const [userName,   setUserName]   = useState("");
-  const [userGender, setUserGender] = useState(null); // null = not chosen
+  const [userName,   setUserName]         = useState("");
+  const [userGender, setUserGender]       = useState(null);
 
   const pool          = members.filter((m) => selectedTeams.includes(m.team));
   const curSection    = SECTIONS[sectionIdx];
@@ -384,11 +395,18 @@ export default function Home() {
     setAnswers((prev) => ({ ...prev, [key]: val }));
   }
 
-  // Called after user info form — compute and go to results
   function compute() {
+    const genAns = answers["generationPref"] ?? null;
     const scored = pool
-      .map((m) => ({ ...m, score: scoreMember(m, answers) }))
-      .sort((a, b) => b.score - a.score);
+      .map((m) => ({
+        ...m,
+        score:      scoreMember(m, answers),
+        genMatches: memberMatchesGeneration(m, genAns),
+      }))
+      .sort((a, b) => {
+        if (a.genMatches !== b.genMatches) return a.genMatches ? -1 : 1;
+        return b.score - a.score;
+      });
     setResults(scored);
     setStep("results");
   }
@@ -402,6 +420,11 @@ export default function Home() {
     setResults([]);
   }
 
+  const activeGenLabel = answers["generationPref"] !== undefined && answers["generationPref"] !== null
+    ? GEN_LABELS[answers["generationPref"]] : null;
+  const hasGenFilter  = activeGenLabel && activeGenLabel !== "Semua Generasi";
+  const firstMismatch = hasGenFilter ? results.findIndex((m) => !m.genMatches) : -1;
+
   return (
     <>
       <style>{css}</style>
@@ -409,46 +432,52 @@ export default function Home() {
 
         {/* ── HEADER ── */}
         <div className="jkt-header">
-          <div className="jkt-title">JKT48<br />Oshi Selector (BETA)</div>
-          <div className="jkt-subtitle">Temukan oshi-mu!</div>
-          <div className="jkt-subtitle-2">Karena ini masih beta jadi mohon maap klo rada ngawur dikit.</div>
+          <div className="jkt-header-inner">
+            <div className="jkt-title">
+              <span className="jkt-title-accent">♠ ♥  JKT48  ♦ ♣</span>
+              Oshi Selector
+            </div>
+            <div className="jkt-subtitle">Temukan oshi-mu!</div>
+            <div className="jkt-subtitle-2">Masih beta — mohon maklum kalau hasilnya rada ngawur 🙏</div>
+          </div>
         </div>
 
-        <div className="jkt-container">
+        <div className="jkt-container" style={{ paddingTop: "1.75rem" }}>
 
-          {/* ── STEP: TEAM SELECTION ── */}
+          {/* ── TEAM SELECTION ── */}
           {step === "teams" && (
             <>
-              <div className="jkt-section-label">
-                Langkah 1 <span style={{ color: S.muted }}>— Pilih Tim</span>
-              </div>
-              <p style={{ fontSize: 13, color: S.muted, marginBottom: 20, lineHeight: 1.7 }}>
+              <div className="jkt-section-label">Langkah 1 — Pilih Tim</div>
+              <p style={{ fontSize: 13, color: S.textMuted, marginBottom: 18, lineHeight: 1.7 }}>
                 Pilih tim mana yang ingin kamu masukkan ke dalam pencarian.
               </p>
               <TeamSelector selectedTeams={selectedTeams} onChange={setSelectedTeams} />
-              <div style={{ marginTop: 28, textAlign: "center" }}>
+              <div style={{ marginTop: 24, textAlign: "center" }}>
                 <button className="jkt-btn-primary" onClick={() => setStep("quiz")}>
                   Mulai Kuis →
                 </button>
-                <div style={{ fontSize: 12, color: S.muted, marginTop: 10 }}>
+                <div style={{ fontSize: 11, color: S.textMuted, marginTop: 10 }}>
                   {pool.length} member terpilih
                 </div>
               </div>
             </>
           )}
 
-          {/* ── STEP: QUIZ ── */}
+          {/* ── QUIZ ── */}
           {step === "quiz" && (
             <>
               <div className="jkt-progress-bar">
                 <div className="jkt-progress-fill"
                   style={{ width: `${((sectionIdx + 1) / totalSections) * 100}%` }} />
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                <div className="jkt-section-label" style={{ margin: 0 }}>
-                  <span style={{ fontSize: 18 }}>{curSection.emoji}</span> {curSection.title}
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+                <div className="jkt-section-label" style={{ margin: 0, flex: 1 }}>
+                  <span style={{ fontSize: 15 }}>{curSection.emoji}</span> {curSection.title}
                 </div>
-                <div style={{ fontSize: 12, color: S.muted }}>{sectionIdx + 1} / {totalSections}</div>
+                <div style={{ fontSize: 11, color: S.textMuted, marginLeft: 12, whiteSpace: "nowrap" }}>
+                  {sectionIdx + 1} / {totalSections}
+                </div>
               </div>
 
               {curSection.questions.map((q) => (
@@ -461,49 +490,34 @@ export default function Home() {
                   onClick={() => sectionIdx > 0 ? setSectionIdx((i) => i - 1) : setStep("teams")}>
                   ← Kembali
                 </button>
-                <div style={{ fontSize: 11, color: S.muted }}>{answeredCount} / {totalQ} dijawab</div>
+                <div style={{ fontSize: 11, color: S.textMuted }}>{answeredCount} / {totalQ} dijawab</div>
                 {sectionIdx < totalSections - 1
                   ? <button className="jkt-btn-primary" onClick={() => setSectionIdx((i) => i + 1)}>Lanjut →</button>
                   : <button className="jkt-btn-primary" onClick={() => setStep("userinfo")}>Hampir selesai →</button>
                 }
               </div>
-              <p style={{ textAlign: "center", fontSize: 11, color: S.muted, marginTop: 16, lineHeight: 1.6 }}>
-                Pertanyaan yang dilewati tidak akan mempengaruhi skor
+              <p style={{ textAlign: "center", fontSize: 11, color: S.textFaint, marginTop: 14, lineHeight: 1.6 }}>
+                Pertanyaan yang dilewati tidak mempengaruhi skor
               </p>
             </>
           )}
 
-          {/* ── STEP: USER INFO FORM ── */}
+          {/* ── USER INFO FORM ── */}
           {step === "userinfo" && (
             <>
-              <div className="jkt-section-label">
-                Terakhir ✦ <span style={{ color: S.muted }}>— Tentang Kamu</span>
-              </div>
-              <p style={{ fontSize: 13, color: S.muted, marginBottom: 20, lineHeight: 1.7 }}>
+              <div className="jkt-section-label">Terakhir — Tentang Kamu</div>
+              <p style={{ fontSize: 13, color: S.textMuted, marginBottom: 16, lineHeight: 1.7 }}>
                 Opsional — hasil tetap muncul kalau kamu skip bagian ini.
               </p>
-
               <div className="jkt-form-card">
-                {/* Name */}
                 <div className="jkt-form-row">
-                  <label className="jkt-form-label">
-                    Nama <span>(opsional)</span>
-                  </label>
-                  <input
-                    className="jkt-form-input"
-                    type="text"
-                    placeholder="Nama atau nickname kamu..."
-                    maxLength={40}
-                    value={userName}
-                    onChange={(e) => setUserName(e.target.value)}
-                  />
+                  <label className="jkt-form-label">Nama <span>(opsional)</span></label>
+                  <input className="jkt-form-input" type="text"
+                    placeholder="Nama atau nickname kamu..." maxLength={40}
+                    value={userName} onChange={(e) => setUserName(e.target.value)} />
                 </div>
-
-                {/* Gender */}
                 <div className="jkt-form-row">
-                  <label className="jkt-form-label">
-                    Gender <span>(opsional)</span>
-                  </label>
+                  <label className="jkt-form-label">Gender <span>(opsional)</span></label>
                   <div className="jkt-gender-grid">
                     {GENDERS.map((g) => (
                       <button key={g.value}
@@ -515,98 +529,135 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-
               <div className="jkt-nav">
-                <button className="jkt-btn-ghost" onClick={() => setStep("quiz")}>
-                  ← Kembali
-                </button>
-                <button className="jkt-btn-primary" onClick={compute}>
-                  Lihat Hasil ✦
-                </button>
+                <button className="jkt-btn-ghost" onClick={() => setStep("quiz")}>← Kembali</button>
+                <button className="jkt-btn-primary" onClick={compute}>Lihat Hasil ♠</button>
               </div>
             </>
           )}
 
-          {/* ── STEP: RESULTS ── */}
+          {/* ── RESULTS ── */}
           {step === "results" && results.length > 0 && (
             <>
-              <div className="jkt-section-label">Hasil ✦</div>
+              <div className="jkt-section-label">Hasil</div>
+
+              {/* Generation filter bar */}
+              {hasGenFilter && (
+                <div className="filter-bar">
+                  <span className="filter-bar-label">♦ Filter Generasi</span>
+                  <span className="filter-badge">{activeGenLabel}</span>
+                  <span style={{ fontSize: 11, color: S.textMuted, marginLeft: "auto" }}>
+                    Member {activeGenLabel} ditampilkan lebih dulu
+                  </span>
+                </div>
+              )}
 
               {/* Hero card */}
               <div className="result-hero">
-                {/* Personalised greeting */}
                 {(userName?.trim() || userGender) && (
                   <div className="result-greeting">
-                    <strong>{userName?.trim() || (userGender === "female" ? "Kamu" : "Kamu")}</strong>
-                    {userGender && !userName?.trim() && null}
-                    {", oshi kamu adalah:"}
+                    <strong>{userName?.trim() || "Kamu"}</strong>{", oshi kamu adalah:"}
                   </div>
                 )}
-                <div style={{ fontSize: 11, letterSpacing: 3, color: S.muted, marginBottom: 12, textTransform: "uppercase" }}>
-                  {userName?.trim() ? "" : "Oshi-mu Adalah"}
-                </div>
+                {!userName?.trim() && (
+                  <div style={{ fontSize: 10, letterSpacing: 4, color: S.textMuted, marginBottom: 14,
+                    textTransform: "uppercase", position: "relative" }}>
+                    ♠ Oshi-mu Adalah ♠
+                  </div>
+                )}
 
                 <Image height={100} width={100} className="result-avatar"
                   src={results[0].photo} alt={results[0].name}
                   onError={(e) => { e.target.style.display = "none"; }} />
+
                 <div className="result-name">{results[0].name}</div>
-                <div style={{ fontSize: 12, color: S.muted, margin: "4px 0 10px" }}>
+                <div style={{ fontSize: 12, color: S.textMuted, margin: "5px 0 14px", position: "relative" }}>
                   {results[0].team} · Gen {results[0].generation}
                 </div>
+
                 <div className="result-score">{results[0].score}%</div>
-                <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>skor kecocokan</div>
-                 <div style={{ fontSize: 9, color: S.muted, marginBottom: 4 }}>Disclaimer: kembali lagi ke kepercayaan masing-masing 🙏</div>
+                <div style={{ fontSize: 11, color: S.textMuted, marginBottom: 12, position: "relative" }}>
+                  skor kecocokan
+                </div>
 
-               
+                <div style={{ position: "relative" }}>
+                  {hasGenFilter && results[0].genMatches && (
+                    <span className="result-tag gen-match">♦ {activeGenLabel}</span>
+                  )}
+                  {userName?.trim() && <span className="result-tag">{userName.trim()}</span>}
+                  {userGender && <span className="result-tag">{GENDERS.find(g => g.value === userGender)?.label}</span>}
+                </div>
+
+                <div style={{ fontSize: 9, color: S.textFaint, marginTop: 12, position: "relative" }}>
+                  Disclaimer: kembali lagi ke kepercayaan masing-masing 🙏
+                </div>
               </div>
 
-              {/* Full ranking */}
-              <div style={{ fontSize: 11, letterSpacing: 4, color: S.muted, textTransform: "uppercase", marginBottom: 14 }}>
-                Rekomendasi Oshi Untukmu:
+              {/* Ranking list */}
+              <div className="jkt-section-label" style={{ marginTop: 6 }}>
+                Rekomendasi Oshi Untukmu
               </div>
+
               {results.map((m, i) => {
-                const rankColor = i === 0 ? S.pink : i === 1 ? S.coral : i === 2 ? S.gold : S.muted;
-                const barColor  = i === 0 ? `linear-gradient(90deg,${S.pink},${S.coral})`
-                  : i < 3 ? `linear-gradient(90deg,${S.coral},${S.gold})` : `#3a3a50`;
+                const showDivider = hasGenFilter && i === firstMismatch && firstMismatch > 0;
+                const rankCls = i === 0 ? " top1" : i === 1 ? " top2" : i === 2 ? " top3" : "";
+                const isTop   = i === 0;
+                const barColor = i === 0 ? S.red
+                  : i === 1 ? S.goldDim
+                  : i === 2 ? S.border2
+                  : S.border1;
+
                 return (
-                  <div key={m.id} className="result-list-item">
-                    <div className="result-rank"
-                      style={{ background: `${rankColor}22`, color: rankColor, border: `1px solid ${rankColor}44` }}>
-                      {i + 1}
-                    </div>
-                    <Image className="result-avatar-sm" width={40} height={40}
-                      src={m.photo} alt={m.name}
-                      onError={(e) => { e.target.style.background = "#2a2a35"; }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {m.name}
+                  <div key={m.id}>
+                    {showDivider && (
+                      <div className="result-divider">
+                        ♣ — Di luar filter {activeGenLabel} — ♣
                       </div>
-                      <div style={{ fontSize: 11, color: S.muted }}>{m.team} · Gen {m.generation}</div>
-                      <div className="score-bar-bg">
-                        <div className="score-bar-fill" style={{ width: `${m.score}%`, background: barColor }} />
+                    )}
+                    <div className={`result-list-item${isTop ? " top-result" : ""}${m.genMatches && hasGenFilter ? " gen-match" : ""}${!m.genMatches && hasGenFilter ? " gen-mismatch" : ""}`}>
+                      <div className={`result-rank${rankCls}`}>{i + 1}</div>
+                      <Image className="result-avatar-sm" width={40} height={40}
+                        src={m.photo} alt={m.name}
+                        onError={(e) => { e.target.style.background = S.surface3; }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 500, color: S.text,
+                          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {m.name}
+                        </div>
+                        <div style={{ fontSize: 11, color: S.textMuted }}>
+                          {m.team} · Gen {m.generation}
+                          {hasGenFilter && m.genMatches && (
+                            <span style={{ marginLeft: 6, color: S.red, fontWeight: 700 }}>♦</span>
+                          )}
+                        </div>
+                        <div className="score-bar-bg">
+                          <div className="score-bar-fill" style={{ width: `${m.score}%`, background: barColor,
+                            boxShadow: i === 0 ? `0 0 6px ${S.red}88` : "none" }} />
+                        </div>
                       </div>
-                    </div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: rankColor, minWidth: 38, textAlign: "right" }}>
-                      {m.score}%
+                      <div style={{ fontSize: 14, fontWeight: 700,
+                        color: i === 0 ? S.red : i === 1 ? S.gold : S.textMuted,
+                        minWidth: 38, textAlign: "right",
+                        textShadow: i === 0 ? `0 0 10px ${S.red}88` : "none" }}>
+                        {m.score}%
+                      </div>
                     </div>
                   </div>
                 );
               })}
 
-              <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 24 }}>
+              <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 28 }}>
                 <button className="jkt-btn-ghost" onClick={() => { setSectionIdx(0); setStep("quiz"); }}>
                   ← Ulangi Kuis
                 </button>
-                <button className="jkt-btn-primary" onClick={resetAll}>Mulai Ulang</button>
+                <button className="jkt-btn-primary" onClick={resetAll}>Mulai Ulang ♠</button>
               </div>
             </>
           )}
 
         </div>
 
-        {/* ── FOOTER ── */}
         <Footer />
-
       </div>
     </>
   );
