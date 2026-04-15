@@ -584,8 +584,8 @@ export default function Home() {
                   {hasGenFilter && results[0].genMatches && (
                     <span className="result-tag gen-match">♦ {activeGenLabel}</span>
                   )}
-                  {userName?.trim() && <span className="result-tag">{userName.trim()}</span>}
-                  {userGender && <span className="result-tag">{GENDERS.find(g => g.value === userGender)?.label}</span>}
+                 
+                 
                 </div>
 
                 <div style={{ fontSize: 9, color: S.textFaint, marginTop: 12, position: "relative" }}>
